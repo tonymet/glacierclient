@@ -6,7 +6,6 @@ import java.io.IOException;
 import java.io.OutputStream;
 import java.security.NoSuchAlgorithmException;
 import java.util.Date;
-import java.util.HashMap;
 
 import com.amazonaws.AmazonClientException;
 import com.amazonaws.auth.AWSCredentials;
