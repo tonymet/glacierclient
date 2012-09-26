@@ -1,11 +1,25 @@
+package us.tonym.GlacierClient;
+
+import us.tonym.GlacierClient.GlacierMetaData;
+import us.tonym.GlacierClient.GlacierMetaItem;
+
 import java.io.BufferedInputStream;
 import java.io.BufferedOutputStream;
 import java.io.File;
+import java.io.FileNotFoundException;
 import java.io.FileOutputStream;
 import java.io.IOException;
+import java.io.InputStream;
 import java.io.OutputStream;
+import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
 import java.util.Date;
+import java.util.Vector;
+
+import java.security.DigestInputStream;
+import javax.activation.MimeType;
+import javax.activation.FileTypeMap;
+import java.io.FileInputStream;
 
 import com.amazonaws.AmazonClientException;
 import com.amazonaws.auth.AWSCredentials;
@@ -33,6 +47,9 @@ public class GlacierClient {
     private static String jobId;
     private static String downloadFilePath;
     private static GetJobOutputResult jobOutputResult = null;
+    private static GlacierMetaItem gmi;
+    private static GlacierMetaData metaDataDB = null;
+    private static FileTypeMap typeMap;
     
     // valid commands
     private enum commands{
@@ -49,6 +66,7 @@ public class GlacierClient {
     }
     
     public static void main(String[] args) throws IOException {
+    	
     	try{
         	cmd = args[0];
         }
@@ -60,6 +78,8 @@ public class GlacierClient {
     			GlacierClient.class.getResourceAsStream("AwsCredentials.properties"));
     	client = new AmazonGlacierClient(credentials);
     	client.setEndpoint("https://glacier.us-east-1.amazonaws.com/");
+    	metaDataDB = new GlacierMetaData(credentials);
+    	metaDataDB.init();
 	
         switch(commands.toCmd(cmd)){
         case put:
@@ -72,15 +92,30 @@ public class GlacierClient {
             	System.exit(ERROR_ARGS);
             }
 	      
-	        try {
-	        	archiveFile = new File(archiveToUpload);
+        	archiveFile = new File(archiveToUpload);
+        	// calculate the checksum
+        	try{
 	            ArchiveTransferManager atm = new ArchiveTransferManager(client, credentials); 
 	            UploadResult result = atm.upload(vaultName, "my archive " + (new Date()), archiveFile);
+	            // store meta data in db.
+	            gmi = new GlacierMetaItem();
+	            gmi.archiveID = result.getArchiveId();
+	            gmi.filename = archiveToUpload;
+	            gmi.length = new Long(archiveFile.length());
+	            gmi.md5 = checksum(archiveFile);
+	            gmi.mimeType = "application/zip"; //typeMap.getContentType(archiveToUpload);
 	            System.out.println("Archive ID: " + result.getArchiveId());
+	            System.err.println("metaData: " + gmi);
+	            if(metaDataDB.putMetaItem(gmi)){
+	            	System.err.println("SimpleDB post success");
+	            }
+	            else{
+	            	System.err.println("ERROR: SimpleDB post failed");
+	            }
 	            System.exit(0);
 	        } catch (Exception e)
 	        {
-	            System.err.println(e);
+	            System.err.println(e.getMessage());
 	            System.exit(ERROR_DOWNLOAD);
 	        }
 	        break;
@@ -177,6 +212,40 @@ public class GlacierClient {
         }
     }
 
+    private static String checksum(File f) throws IOException{
+    	StringBuffer hex =  new StringBuffer();
+    	InputStream is = new FileInputStream(f);
+    	DigestInputStream dis = null;
+    	MessageDigest md = null;
+    	try{
+    		md = MessageDigest.getInstance("MD5");
+    		dis = new DigestInputStream(is, md);
+    		byte[] buf = new byte[256];
+    		// read through file to get md5
+    		while(dis.read(buf) != -1);
+    	}catch (NoSuchAlgorithmException e) {
+			// TODO Auto-generated catch block
+			e.printStackTrace();
+		}
+    	catch(IOException e){
+    		e.printStackTrace();
+    	}
+    	finally{
+    		dis.close();
+    	}
+    	byte[] hash = md.digest();
+
+    	for (int i = 0; i < hash.length; i++) {
+    		if ((0xff & hash[i]) < 0x10) {
+    			hex.append("0"
+    					+ Integer.toHexString((0xFF & hash[i])));
+    		} else {
+    			hex.append(Integer.toHexString(0xFF & hash[i]));
+    		}
+    	}
+    	return hex.toString();
+    }
+    
     private static void usage(){
     	System.out.println("GlacierClient CMD args..");
     	System.out.println("              get <archive id> <path to local file> -- retrieve file to local file");
