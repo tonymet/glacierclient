@@ -1,0 +1,4 @@
+- mime-type detection fix
+- configure domain, etc
+- handle reconnect
+- refactor main into sep classes, e.g. for file handling, etc
