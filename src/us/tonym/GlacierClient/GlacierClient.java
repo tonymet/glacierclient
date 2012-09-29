@@ -39,16 +39,18 @@ public class GlacierClient {
     public static String archiveToUpload = null;
     public static final int ERROR_ARGS = 2;
     public static final int ERROR_DOWNLOAD = 3;
-    public static AmazonGlacierClient client;
-    private static File archiveFile = null;
+    private  AmazonGlacierClient client;
     private static String cmd = null;
     private static String archiveId; 
     private static String jobId;
     private static String downloadFilePath;
     private static GetJobOutputResult jobOutputResult = null;
-    private static GlacierMetaItem gmi;
-    private static GlacierMetaData metaDataDB = null;
-    private static MimetypesFileTypeMap typeMap = null;
+    private GlacierMetaItem gmi;
+    private GlacierMetaData metaDataDB = null;
+    private MimetypesFileTypeMap typeMap = null;
+    private AWSCredentials credentials;
+    private static GlacierClient instance;
+    private ArchiveTransferManager atm  = null;
     
     // valid commands
     private enum commands{
@@ -64,6 +66,41 @@ public class GlacierClient {
         }   
     }
     
+    public  GlacierClient() throws IOException{
+    	this.credentials = new PropertiesCredentials(
+    			GlacierClient.class.getResourceAsStream("AwsCredentials.properties"));
+    	this.client = new AmazonGlacierClient(credentials);
+    	this.client.setEndpoint("https://glacier.us-east-1.amazonaws.com/");
+    	this.metaDataDB = new GlacierMetaData(credentials);
+    	this.metaDataDB.init();
+    	this.typeMap = new MimetypesFileTypeMap();
+    	this.atm = new ArchiveTransferManager(client, credentials); 
+    	
+    }
+    
+    public Boolean putFile(File archiveFile) throws Exception{
+    	// calculate the checksum
+    	
+    	UploadResult result = atm.upload(vaultName, "my archive " + (new Date()), archiveFile);
+    	// store meta data in db.
+    	this.gmi = new GlacierMetaItem();
+    	this.gmi.archiveID = result.getArchiveId();
+    	this.gmi.filename = archiveFile.getName();
+    	this.gmi.length = new Long(archiveFile.length());
+    	this.gmi.md5 = checksum(archiveFile);
+    	this.gmi.mimeType = typeMap.getContentType(archiveToUpload);
+    	System.out.println("Archive ID: " + result.getArchiveId());
+    	System.err.println("metaData: " + this.gmi);
+    	if(metaDataDB.putMetaItem(gmi)){
+    		System.err.println("SimpleDB post success");
+    	}
+    	else{
+    		System.err.println("ERROR: SimpleDB post failed");
+    	}
+
+    	return false;
+    }
+    
     public static void main(String[] args) throws IOException {
     	
     	try{
@@ -73,17 +110,12 @@ public class GlacierClient {
         	usage();
         	System.exit(ERROR_ARGS);
         }
-    	AWSCredentials credentials = new PropertiesCredentials(
-    			GlacierClient.class.getResourceAsStream("AwsCredentials.properties"));
-    	client = new AmazonGlacierClient(credentials);
-    	client.setEndpoint("https://glacier.us-east-1.amazonaws.com/");
-    	metaDataDB = new GlacierMetaData(credentials);
-    	metaDataDB.init();
-    	typeMap = new MimetypesFileTypeMap();
-	
+    	instance = new GlacierClient();
+    	
     	
         switch(commands.toCmd(cmd)){
         case put:
+        	
         	System.err.println("DO PUT");
         	try{
             	archiveToUpload = args[1];
@@ -92,27 +124,8 @@ public class GlacierClient {
             	usage();
             	System.exit(ERROR_ARGS);
             }
-	      
-        	archiveFile = new File(archiveToUpload);
-        	// calculate the checksum
         	try{
-	            ArchiveTransferManager atm = new ArchiveTransferManager(client, credentials); 
-	            UploadResult result = atm.upload(vaultName, "my archive " + (new Date()), archiveFile);
-	            // store meta data in db.
-	            gmi = new GlacierMetaItem();
-	            gmi.archiveID = result.getArchiveId();
-	            gmi.filename = archiveFile.getName();
-	            gmi.length = new Long(archiveFile.length());
-	            gmi.md5 = checksum(archiveFile);
-	            gmi.mimeType = typeMap.getContentType(archiveToUpload);
-	            System.out.println("Archive ID: " + result.getArchiveId());
-	            System.err.println("metaData: " + gmi);
-	            if(metaDataDB.putMetaItem(gmi)){
-	            	System.err.println("SimpleDB post success");
-	            }
-	            else{
-	            	System.err.println("ERROR: SimpleDB post failed");
-	            }
+        		instance.putFile(new File(archiveToUpload));
 	            System.exit(0);
 	        } catch (Exception e)
 	        {
@@ -132,8 +145,7 @@ public class GlacierClient {
         	}
         	System.err.println("Save archiveID " + archiveId + " to file " + downloadFilePath);
         	try {
-        		ArchiveTransferManager atm = new ArchiveTransferManager(client, credentials);
-        		atm.download(vaultName, archiveId, new File(downloadFilePath));
+        		instance.atm.download(vaultName, archiveId, new File(downloadFilePath));
 
         	} catch (Exception e)
         	{
@@ -152,7 +164,7 @@ public class GlacierClient {
         	}
         	System.err.println("Save jobId " + jobId + " to file " + downloadFilePath);
         	try{
-        		jobOutputResult = client.getJobOutput(new GetJobOutputRequest()
+        		jobOutputResult = instance.client.getJobOutput(new GetJobOutputRequest()
         		.withAccountId("-")
         		.withVaultName(vaultName)
         		.withJobId(jobId));
@@ -164,7 +176,7 @@ public class GlacierClient {
         	}
         	break;
         case listjobs:
-        	ListJobsResult listJobsResult = client.listJobs(new ListJobsRequest(vaultName));
+        	ListJobsResult listJobsResult = instance.client.listJobs(new ListJobsRequest(vaultName));
         	for(GlacierJobDescription d : listJobsResult.getJobList()){
         		System.out.println("JobId: " + d.getJobId() + " -- description: " + d.getJobDescription());
         	}
