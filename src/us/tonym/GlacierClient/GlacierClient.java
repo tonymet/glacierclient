@@ -6,7 +6,6 @@ import us.tonym.GlacierClient.GlacierMetaItem;
 import java.io.BufferedInputStream;
 import java.io.BufferedOutputStream;
 import java.io.File;
-import java.io.FileNotFoundException;
 import java.io.FileOutputStream;
 import java.io.IOException;
 import java.io.InputStream;
@@ -14,11 +13,11 @@ import java.io.OutputStream;
 import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
 import java.util.Date;
-import java.util.Vector;
 
 import java.security.DigestInputStream;
-import javax.activation.MimeType;
-import javax.activation.FileTypeMap;
+import javax.activation.MimetypesFileTypeMap;
+
+
 import java.io.FileInputStream;
 
 import com.amazonaws.AmazonClientException;
@@ -49,7 +48,7 @@ public class GlacierClient {
     private static GetJobOutputResult jobOutputResult = null;
     private static GlacierMetaItem gmi;
     private static GlacierMetaData metaDataDB = null;
-    private static FileTypeMap typeMap;
+    private static MimetypesFileTypeMap typeMap = null;
     
     // valid commands
     private enum commands{
@@ -80,7 +79,9 @@ public class GlacierClient {
     	client.setEndpoint("https://glacier.us-east-1.amazonaws.com/");
     	metaDataDB = new GlacierMetaData(credentials);
     	metaDataDB.init();
+    	typeMap = new MimetypesFileTypeMap();
 	
+    	
         switch(commands.toCmd(cmd)){
         case put:
         	System.err.println("DO PUT");
@@ -100,10 +101,10 @@ public class GlacierClient {
 	            // store meta data in db.
 	            gmi = new GlacierMetaItem();
 	            gmi.archiveID = result.getArchiveId();
-	            gmi.filename = archiveToUpload;
+	            gmi.filename = archiveFile.getName();
 	            gmi.length = new Long(archiveFile.length());
 	            gmi.md5 = checksum(archiveFile);
-	            gmi.mimeType = "application/zip"; //typeMap.getContentType(archiveToUpload);
+	            gmi.mimeType = typeMap.getContentType(archiveToUpload);
 	            System.out.println("Archive ID: " + result.getArchiveId());
 	            System.err.println("metaData: " + gmi);
 	            if(metaDataDB.putMetaItem(gmi)){

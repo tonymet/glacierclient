@@ -22,8 +22,8 @@ public class GlacierMetaItem {
 	public String toString(){
 		return " archiveID: archiveID" + 
 		 "md5: " + md5 + 
-		 "filename: " + filename +
-		 "mimeType: " + mimeType +
-		 "length: " + length.toString();
+		 " filename: " + filename +
+		 " mimeType: " + mimeType +
+		 " length: " + length.toString();
 	}
 }
